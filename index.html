@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Picross (Nonogram) — CSV loader</title>
+<style>
+  :root{
+    --cell-size:28px;
+    --grid-gap:2px;
+    --font-family:system-ui,Segoe UI,Roboto,Arial;
+  }
+  body{ font-family:var(--font-family); margin:16px; background:#f7f7fb; color:#111; }
+  .topbar { display:flex; gap:12px; align-items:flex-start; margin-bottom:12px; }
+  .controls { display:flex; gap:8px; align-items:flex-start; }
+  input[type=file]{ display:inline-block; }
+  .container { display:flex; gap:12px; align-items:flex-start; }
+  .left { display:flex; gap:12px;}
+  .board-wrap { background:#fff; padding:8px; border-radius:8px; box-shadow:0 6px 18px rgba(20,20,40,0.06); }
+  .grid {
+    display:grid;
+    gap:var(--grid-gap);
+    background:linear-gradient(180deg,#e9eefb,#f5f7ff);
+    padding:6px;
+    border-radius:6px;
+  }
+  .cell{
+    width:var(--cell-size); height:var(--cell-size);
+    display:flex; align-items:center; justify-content:center;
+    border-radius:4px; user-select:none; cursor:pointer;
+    background:linear-gradient(180deg,#fff,#f2f6ff);
+    box-shadow:inset 0 -1px 0 rgba(0,0,0,0.03);
+    font-size:14px;
+  }
+  .cell.block { background:#2b6cb0; color:white; font-weight:700; }
+  .cell.cross { color:#444; }
+  .cell.cross::after { content:'✕'; font-size:14px; }
+  .cell.mistake { outline:3px solid rgba(255,60,60,0.25); box-shadow:0 0 8px rgba(255,60,60,0.12); }
+
+  .clues {
+    display:flex;
+    gap:8px;
+    margin-bottom:6px;
+  }
+  .clue-col, .clue-row { display:flex; gap:2px; flex-direction:row; flex-wrap:wrap; align-items:center; justify-content:center; }
+  .clue-number {
+    font-size:13px; padding:2px 6px; border-radius:4px;
+    color:#6b7280;
+  }
+  .clue-number.blue { color:#0b5cff; font-weight:700; }
+  .clue-number.grey { color:#9aa0a6; font-weight:400; }
+  .clue-number.red { color:#c62828; font-weight:700; }
+  .clue-number.bold { font-weight:700; color:#111; }
+  .clue-number.crossed { text-decoration:line-through; opacity:0.6; }
+
+  /* layout for clues + grid:
+     gridArea is a 2x2 CSS grid:
+      - (1,1) corner spacer
+      - (1,2) column clues (top)
+      - (2,1) row clues (left)
+      - (2,2) actual grid
+  */
+  .grid-area { display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto 1fr; gap:6px; align-items:start; }
+  .col-clues { display:grid; grid-auto-flow:column; grid-auto-columns: var(--cell-size); justify-items:center; align-items:end; gap:var(--grid-gap); }
+  .col-clues > div { display:flex; flex-direction:column; align-items:center; justify-content:flex-end; }
+  .row-clues { display:grid; grid-auto-rows: var(--cell-size); gap:var(--grid-gap); justify-items:end; align-items:center; padding-right:6px; }
+  .col-clues > div span { line-height: var(--cell-size); height: var(--cell-size); display:inline-flex; align-items:center; justify-content:center; }
+  .col-clues > div span[style*="visibility: hidden"] { visibility: hidden; }
+
+  /* help menu */
+  .help {
+    position:fixed; right:18px; bottom:18px; background:#fff; padding:10px; border-radius:10px;
+    box-shadow:0 10px 30px rgba(40,40,80,0.08); width:220px;
+  }
+  .help h4{ margin:0 0 8px 0; font-size:14px; }
+  .help button{ display:inline-block; margin:6px 4px 0 0; padding:6px 8px; border-radius:6px; border:1px solid #ddd; background:#f6f8ff; cursor:pointer; }
+  .help .danger { background:#ffecec; border-color:#ffbcbc; }
+  .status { margin-top:8px; font-size:13px; color:#555; min-height:18px; }
+
+  .small { font-size:13px; color:#666; margin-bottom: 10px;}
+  .hint { font-size:12px; color:#888; margin-top:6px; }
+  
+  .clue-number { color: grey; font-weight: light; }
+  .clue-number.bold { font-weight: bold; }
+  .clue-number.blue { color: blue; font-weight: bold; }
+  .clue-number.red { color: red; font-weight: bold; }
+  .clue-number.grey { color: grey; }
+  .clue-number.greybold { color: grey !important; font-weight: bold; text-decoration: line-through; } /* when fully solved */
+  .clue-number.lightgrey { color: #ccc; font-weight: 700; }
+
+  
+
+</style>
+</head>
+<body oncontextmenu="return false;">
+
+<div class="topbar">
+  <div class="controls">
+    <label><strong>Load CSV:</strong> <input id="csvfile" type="file" accept=".csv,text/csv"></label>
+    <button id="newBtn">New (random small)</button>
+    <button id="resetBtn">Reset</button>
+	<details>
+		<summary><b>Draw Your Own Nonogram</b></summary>
+		<label>Width: <input type="number" id="boardWidth" value="10" min="1" style="width:50px"></label>
+		<label>Height: <input type="number" id="boardHeight" value="10" min="1" style="width:50px"></label>
+		<p>Refresh page to update grid size</p>
+		<button id="saveCSV">Save to CSV</button>
+	</details>
+  </div>
+</div>
+<div class="small"><b>Instructions:</b> Left-click: place/remove block • Right-click: place/remove cross • Z: undo</div>
+
+<div class="container">
+  <div class="left">
+    <div class="board-wrap">
+      <div id="gridContainer">
+        <div class="grid-area" id="gridArea">
+          <!-- corner, column clues (top), row clues (left), grid (bottom-right) will be injected -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="status" id="status">No puzzle loaded.</div>
+    <div class="hint">CSV format: each line is a row. Use `X` for filled blocks, leave empty for empties. Example:
+      <pre style="display:inline;">X,,X,X</pre></div>
+  </div>
+</div>
+
+<div class="help" id="help">
+  <h4>Help</h4>
+  <button id="fillRandom">Fill random correct cell</button>
+  <button id="showMistakes">Show mistakes</button>
+  <button id="toggleMistakes" style="display:none">Hide mistakes</button>
+  <div class="hint" style="margin-top:8px">Clue colors:
+    <div><span style="color:#0b5cff;font-weight:700">Blue/</span>possible</div>
+    <div><span style="color:#c62828;font-weight:700">Red</span>/contradiction</div>
+    <div><span style="color:#9aa0a6">Grey</span>/no placement</div>
+  </div>
+</div>
+
+<script>
+let solution = [];      // 2D array of booleans
+let rows = 0, cols = 0;
+let state = [];         // same shape, values: 0 empty, 1 block, 2 cross
+let undoStack = [];
+const MAX_UNDO = 100;
+let showMistakesOn = false;
+
+const csvInput = document.getElementById('csvfile');
+const gridArea = document.getElementById('gridArea');
+const status = document.getElementById('status');
+const fillRandomBtn = document.getElementById('fillRandom');
+const showMistakesBtn = document.getElementById('showMistakes');
+const toggleMistakesBtn = document.getElementById('toggleMistakes');
+const newBtn = document.getElementById('newBtn');
+const resetBtn = document.getElementById('resetBtn');
+
+csvInput.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    parseCSV(ev.target.result);
+    buildGrid();
+    updateAll();
+    status.textContent = `Loaded puzzle ${rows}×${cols}.`;
+  };
+  reader.readAsText(f);
+});
+
+newBtn.addEventListener('click', () => {
+  rows = 10; cols = 10;
+  solution = Array.from({length:rows}, () => Array(cols).fill(false));
+  for (let r=0;r<rows;r++){
+    for (let c=0;c<cols;c++){
+      solution[r][c] = Math.random() < 0.7;
+    }
+  }
+  initState();
+  buildGrid();
+  updateAll();
+  status.textContent = `Random puzzle ${rows}×${cols}.`;
+});
+
+const widthInput = document.getElementById('boardWidth');
+const heightInput = document.getElementById('boardHeight');
+const saveCSVBtn = document.getElementById('saveCSV');
+
+newBtn.addEventListener('click', () => {
+  const w = parseInt(widthInput.value) || 10;
+  const h = parseInt(heightInput.value) || 10;
+  rows = h;
+  cols = w;
+
+  solution = Array.from({length:rows}, () => Array(cols).fill(false));
+  // fill randomly ~45%
+  for (let r=0;r<rows;r++){
+    for (let c=0;c<cols;c++){
+      solution[r][c] = Math.random() < 0.45;
+    }
+  }
+
+  initState();
+  buildGrid();
+  updateAll();
+  status.textContent = `Random puzzle ${rows}×${cols}.`;
+});
+
+
+
+resetBtn.addEventListener('click', () => {
+  initState();
+  undoStack = [];
+  updateAll();
+  status.textContent = 'Reset puzzle (cleared user marks).';
+});
+
+fillRandomBtn.addEventListener('click', () => {
+  const empties = [];
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++){
+    if (state[r][c] === 0) empties.push([r,c]);
+  }
+  if (empties.length === 0) { status.textContent = 'No empty cell left.'; return; }
+  const [r,c] = empties[Math.floor(Math.random()*empties.length)];
+  const prev = state[r][c];
+  const newv = solution[r][c] ? 1 : 2;
+  applyMove(r,c,prev,newv);
+  pushUndo({r,c,prev});
+  updateAll();
+  status.textContent = `Filled cell ${r+1},${c+1}.`;
+});
+
+showMistakesBtn.addEventListener('click', () => {
+  showMistakesOn = true;
+  toggleMistakesBtn.style.display = 'inline-block';
+  showMistakesBtn.style.display = 'none';
+  highlightMistakes();
+});
+toggleMistakesBtn.addEventListener('click', () => {
+  showMistakesOn = false;
+  toggleMistakesBtn.style.display = 'none';
+  showMistakesBtn.style.display = 'inline-block';
+  clearCellHighlights();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'z' || e.key === 'Z') {
+    e.preventDefault();
+    doUndo();
+  }
+});
+
+function parseCSV(txt) {
+  const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  solution = lines.map(line => {
+    const colsArr = line.split(',');
+    return colsArr.map(cell => (cell.trim().toUpperCase() === 'X'));
+  });
+  rows = solution.length;
+  cols = solution[0]?.length || 0;
+  for (let r=0;r<rows;r++) {
+    if (solution[r].length < cols) {
+      const diff = cols - solution[r].length;
+      solution[r] = solution[r].concat(Array(diff).fill(false));
+    }
+  }
+  initState();
+  undoStack = [];
+}
+
+function initState(){
+  if (!solution || solution.length===0) {
+    rows = rows || 0; cols = cols || 0;
+    solution = Array.from({length:rows}, () => Array(cols).fill(false));
+  }
+  state = Array.from({length:rows}, () => Array(cols).fill(0));
+}
+
+/* UI build - updated to align column clues precisely with the grid */
+let cellElements = []; // [r][c] -> element
+let rowClueElements = [];
+let colClueElements = [];
+
+function buildGrid(){
+  gridArea.innerHTML = '';
+  cellElements = Array.from({length:rows}, () => Array(cols).fill(null));
+  rowClueElements = Array.from({length:rows}, () => []);
+  colClueElements = Array.from({length:cols}, () => []);
+
+  const rowClues = solution.map(line => computeCluesFromLine(line));
+  const colClues = [];
+  for (let c=0;c<cols;c++){
+    const col = [];
+    for (let r=0;r<rows;r++) col.push(solution[r][c]);
+    colClues.push(computeCluesFromLine(col));
+  }
+
+  // top-left corner spacer
+  const corner = document.createElement('div');
+  corner.style.width = 'auto';
+  corner.style.height = 'auto';
+  corner.style.gridColumn = '1 / 2';
+  corner.style.gridRow = '1 / 2';
+  gridArea.appendChild(corner);
+
+  // column clues (top, placed in grid cell 1,2)
+  const colCluesWrap = document.createElement('div');
+  colCluesWrap.className = 'col-clues';
+  colCluesWrap.style.gridColumn = '2 / 3';
+  colCluesWrap.style.gridRow = '1 / 2';
+  // ensure it uses same column count as grid
+  colCluesWrap.style.gridTemplateColumns = `repeat(${cols}, ${getComputedStyle(document.documentElement).getPropertyValue('--cell-size') || '28px'})`;
+
+  // compute numeric cell size and gap in px for precise heights
+// compute numeric cell size and gap in px for precise heights
+const cssCellSize = getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim() || '28px';
+const cssGap = getComputedStyle(document.documentElement).getPropertyValue('--grid-gap').trim() || '2px';
+const cellSizePx = parseInt(cssCellSize,10) || 28;
+const gapPx = parseInt(cssGap,10) || 2;
+
+// compute the maximum number of stacked clue rows among all columns
+const maxColDepth = Math.max(1, ...colClues.map(arr => arr.length)); // at least 1 so area isn't zero
+
+// height needed for top clue area = number of clue-rows * cell-size + gaps + small padding
+const cluesHeight = maxColDepth * cellSizePx + Math.max(0, maxColDepth - 1) * gapPx + 6; // 6 = small padding
+
+// Create col stacks sized to the clue depth (not the whole grid)
+for (let c=0;c<cols;c++){
+  const colDiv = document.createElement('div');
+  colDiv.style.height = cluesHeight + 'px';
+  colDiv.style.display = 'flex';
+  colDiv.style.flexDirection = 'column';
+  colDiv.style.alignItems = 'center';
+  colDiv.style.justifyContent = 'flex-end';
+  colDiv.style.gap = cssGap;
+
+  // add "blank" spacer spans at top so numbers bottom-align relative to the max depth
+  const blanks = maxColDepth - colClues[c].length;
+  for (let b=0; b<blanks; b++){
+    const spacer = document.createElement('span');
+    spacer.className = 'clue-number'; // empty but keeps spacing
+    spacer.style.visibility = 'hidden';
+    spacer.textContent = '0'; // content doesn't matter because it's hidden
+    colDiv.appendChild(spacer);
+  }
+
+  colClues[c].forEach((n, idx) => {
+    const span = document.createElement('span');
+    span.className = 'clue-number';
+    span.textContent = n;
+    span.dataset.index = idx;
+    colDiv.appendChild(span);
+    colClueElements[c].push(span);
+  });
+
+  if (colClues[c].length === 0) {
+    const span = document.createElement('span');
+    span.className = 'clue-number grey';
+    span.textContent = '0';
+    colDiv.appendChild(span);
+    colClueElements[c].push(span);
+  }
+  colCluesWrap.appendChild(colDiv);
+}
+
+  gridArea.appendChild(colCluesWrap);
+
+  // row clues (left, placed in grid cell 2,1)
+  const rowCluesWrap = document.createElement('div');
+  rowCluesWrap.className = 'row-clues';
+  rowCluesWrap.style.gridColumn = '1 / 2';
+  rowCluesWrap.style.gridRow = '2 / 3';
+  // make a grid with exact row heights which match the cell height and gap
+  rowCluesWrap.style.display = 'grid';
+  rowCluesWrap.style.gridTemplateRows = `repeat(${rows}, ${cssCellSize})`;
+  rowCluesWrap.style.gap = cssGap;
+  rowCluesWrap.style.alignItems = 'center';
+  rowCluesWrap.style.justifyItems = 'end';
+  rowCluesWrap.style.paddingRight = '6px';
+
+  rowClues.forEach((cl, r) => {
+    const rowDiv = document.createElement('div');
+    rowDiv.style.display='flex';
+    rowDiv.style.gap='4px';
+    rowDiv.style.justifyContent='flex-end';
+    rowDiv.style.alignItems='center';
+    cl.forEach((n, idx) => {
+      const span = document.createElement('span');
+      span.className = 'clue-number';
+      span.textContent = n;
+      span.dataset.index = idx;
+      rowDiv.appendChild(span);
+      rowClueElements[r].push(span);
+    });
+    if (cl.length === 0) {
+      const span = document.createElement('span');
+      span.className = 'clue-number grey';
+      span.textContent = '0';
+      rowDiv.appendChild(span);
+      rowClueElements[r].push(span);
+    }
+    rowCluesWrap.appendChild(rowDiv);
+  });
+  gridArea.appendChild(rowCluesWrap);
+
+  // grid (bottom-right placed in 2,2)
+  const gridDiv = document.createElement('div');
+  gridDiv.className = 'grid';
+  gridDiv.style.gridTemplateColumns = `repeat(${cols}, ${getComputedStyle(document.documentElement).getPropertyValue('--cell-size') || '28px'})`;
+  gridDiv.style.width = 'max-content';
+  gridDiv.style.gridColumn = '2 / 3';
+  gridDiv.style.gridRow = '2 / 3';
+  gridDiv.style.alignSelf = 'start';
+
+  for (let r=0;r<rows;r++){
+    for (let c=0;c<cols;c++){
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.r = r; cell.dataset.c = c;
+      cell.addEventListener("mousedown", onCellMouseDown);
+		cell.addEventListener("contextmenu", (e) => e.preventDefault()); // only suppress menu
+
+      gridDiv.appendChild(cell);
+      cellElements[r][c] = cell;
+    }
+  }
+  gridArea.appendChild(gridDiv);
+}
+
+// compute run-length clues for a single boolean line
+function computeCluesFromLine(line){
+  const res = [];
+  let cnt = 0;
+  for (let v of line) {
+    if (v) cnt++; else { if (cnt>0) { res.push(cnt); cnt=0; } }
+  }
+  if (cnt>0) res.push(cnt);
+  return res;
+}
+
+// mouse handling
+// ===== drag painting globals =====
+let dragActive = false;
+let dragButton = null;   // 0 = left, 2 = right
+let dragValue = null;    // value to paint (1 block, 2 cross, 0 erase)
+let lastPainted = null;  // "r,c" string to avoid double-painting same cell
+
+// ===== mouse click over cell =====
+function onCellMouseDown(e){
+  // only respond to left(0) or right(2)
+  if (e.button !== 0 && e.button !== 2) return;
+  e.preventDefault(); // stop selection/context menu
+
+  const el = this;
+  const r = +el.dataset.r, c = +el.dataset.c;
+  const prev = state[r][c];
+
+  // decide the paint value based on initial cell's current state (toggle semantics)
+  // If you prefer "always place block on left-drag" change below to (e.button === 0 ? 1 : 2)
+  let newv;
+  if (e.button === 0) newv = (prev === 1 ? 0 : 1); // left: toggle block/erase
+  else newv = (prev === 2 ? 0 : 2);                // right: toggle cross/erase
+
+  // apply to initial cell if it actually changes
+  if (newv !== prev) {
+    applyMove(r,c,prev,newv);
+    pushUndo({r,c,prev});
+    updateAll();
+  }
+
+  // start drag mode
+  dragActive = true;
+  dragButton = e.button;
+  dragValue = newv;
+  lastPainted = `${r},${c}`;
+
+  // disable text selection while dragging
+  document.body.style.userSelect = 'none';
+
+  // attach global listeners to track movement and release
+  document.addEventListener('mousemove', onDocumentMouseMove);
+  document.addEventListener('mouseup', onDocumentMouseUp);
+
+  // optionally check win (small delay avoids race with visual update)
+  if (checkWin()) setTimeout(()=> alert("You win!"), 10);
+}
+
+// ===== called while dragging (global mousemove) =====
+function onDocumentMouseMove(e){
+  if (!dragActive) return;
+  // find element under pointer
+  const elUnder = document.elementFromPoint(e.clientX, e.clientY);
+  if (!elUnder) return;
+  const cell = elUnder.closest && elUnder.closest('.cell');
+  if (!cell) return;
+
+  const r = +cell.dataset.r, c = +cell.dataset.c;
+  const key = `${r},${c}`;
+  if (key === lastPainted) return; // already painted this one during this drag
+  lastPainted = key;
+
+  const prev = state[r][c];
+  const newv = dragValue;
+  if (prev === newv) return; // nothing to do
+
+  applyMove(r,c,prev,newv);
+  pushUndo({r,c,prev});
+  updateAll();
+  if (checkWin()) setTimeout(()=> alert("You win!"), 10);
+}
+
+// ===== called on mouseup anywhere =====
+function onDocumentMouseUp(e){
+  if (!dragActive) return;
+  dragActive = false;
+  dragButton = null;
+  dragValue = null;
+  lastPainted = null;
+
+  // re-enable selection
+  document.body.style.userSelect = '';
+
+  // remove global listeners
+  document.removeEventListener('mousemove', onDocumentMouseMove);
+  document.removeEventListener('mouseup', onDocumentMouseUp);
+}
+
+
+
+function toggleCrossFromEvent(e){
+  const el = e.target.closest('.cell');
+  if (!el) return;
+  const r = +el.dataset.r, c = +el.dataset.c;
+  const prev = state[r][c];
+  const newv = (prev === 2) ? 0 : 2;
+  applyMove(r,c,prev,newv);
+  pushUndo({r,c,prev});
+  updateAll();
+}
+
+// apply state change
+function applyMove(r,c,prev,newv){
+  state[r][c] = newv;
+  if (showMistakesOn) highlightMistakes();
+}
+
+// undo
+function pushUndo(entry){
+  undoStack.push(entry);
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+}
+function doUndo(){
+  if (undoStack.length === 0) { status.textContent = 'Nothing to undo.'; return; }
+  const last = undoStack.pop();
+  const {r,c,prev} = last;
+  state[r][c] = prev;
+  updateAll();
+  status.textContent = `Undid move at ${r+1},${c+1}.`;
+  if (showMistakesOn) highlightMistakes();
+}
+
+// highlight mistakes by comparing with solution
+function highlightMistakes(){
+  clearCellHighlights();
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++){
+    const el = cellElements[r][c];
+    if (!el) continue;
+    const s = state[r][c];
+    const sol = solution[r][c];
+    if ((s === 1 && !sol) || (s === 2 && sol)) {
+      el.classList.add('mistake');
+    }
+  }
+}
+function clearCellHighlights(){
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++){
+    const el = cellElements[r][c]; if (!el) continue;
+    el.classList.remove('mistake');
+  }
+}
+
+function updateAll(){
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++){
+    const el = cellElements[r][c];
+    if (!el) continue;
+    el.classList.remove('block','cross','mistake');
+    if (state[r][c] === 1) el.classList.add('block');
+    else if (state[r][c] === 2) el.classList.add('cross');
+  }
+
+  const rowClues = solution.map(line => computeCluesFromLine(line));
+  const colClues = [];
+  for (let c=0;c<cols;c++){
+    const col = [];
+    for (let r=0;r<rows;r++) col.push(solution[r][c]);
+    colClues.push(computeCluesFromLine(col));
+  }
+
+  for (let r=0;r<rows;r++){
+    const lineState = state[r].slice();
+    const clues = rowClues[r];
+    const placements = enumerateLinePlacements(lineState, clues);
+    updateClueStylesForLine(rowClueElements[r], placements, lineState, clues);
+  }
+
+  for (let c=0;c<cols;c++){
+    const lineState = [];
+    for (let r=0;r<rows;r++) lineState.push(state[r][c]);
+    const clues = colClues[c];
+    const placements = enumerateLinePlacements(lineState, clues);
+    updateClueStylesForLine(colClueElements[c], placements, lineState, clues);
+  }
+
+  if (showMistakesOn) highlightMistakes();
+}
+
+function enumerateLinePlacements(lineState, clues){
+  const n = lineState.length;
+  const k = clues.length;
+  const placements = [];
+  if (k === 0) {
+    let ok = true;
+    for (let i=0;i<n;i++) if (lineState[i] === 1) ok = false;
+    if (ok) placements.push(Array(n).fill(false));
+    return placements;
+  }
+
+  const blocks = clues.slice();
+
+  function placeSegment(idx, pos, cur){
+    if (idx === k) {
+      for (let i=0;i<n;i++){
+        if (lineState[i] === 1 && !cur[i]) return;
+        if (lineState[i] === 2 && cur[i]) return;
+      }
+      placements.push(cur.slice());
+      return;
+    }
+    const len = blocks[idx];
+    let minRemaining = 0;
+    for (let j=idx+1;j<k;j++) minRemaining += blocks[j] + 1;
+    const maxStart = n - (len + minRemaining);
+    for (let s = pos; s <= maxStart; s++){
+      let ok = true;
+      for (let x = s; x < s+len; x++) {
+        if (lineState[x] === 2) { ok = false; break; }
+      }
+      if (!ok) continue;
+      const nextCur = cur.slice();
+      for (let x = s; x < s+len; x++) nextCur[x] = true;
+      if (s-1 >= 0 && nextCur[s-1]) continue;
+      placeSegment(idx+1, s+len+1, nextCur);
+    }
+  }
+
+  placeSegment(0, 0, Array(n).fill(false));
+  return placements;
+}
+
+function updateClueStylesForLine(clueSpans, placements, lineState, clues){
+  if (!clueSpans) return;
+
+  // Reset classes safely on existing spans
+  for (let el of clueSpans) {
+    if (!el) continue;
+    el.className = 'clue-number';
+  }
+
+  const k = clues.length;
+  const n = lineState.length;
+  const totalBlocks = clues.reduce((a,b)=>a+b, 0);
+  const placedBlocksCount = lineState.reduce((acc,v)=>acc + (v===1?1:0), 0);
+  const hasEmptyCells = lineState.some(v=>v===0);
+
+  // Handle "no groups" (k === 0): color the single 0-span appropriately
+  if (k === 0) {
+    const hasEmptyCells = lineState.some(v => v === 0);
+    const placedBlocksCount = lineState.reduce((acc,v)=>acc + (v===1?1:0), 0);
+
+    // If player put any blocks, that's impossible
+    if (placedBlocksCount > 0) {
+      for (let el of clueSpans) if (el) el.classList.add('red','bold');
+    } else if (hasEmptyCells) {
+      // Still some empty cells left → need to mark them with crosses
+      for (let el of clueSpans) if (el) el.classList.add('grey','bold');
+    } else {
+      // All filled with crosses, fully done
+      for (let el of clueSpans) if (el) el.classList.add('lightgrey','crossed');
+    }
+    return;
+  }
+
+
+  // If no placements at all -> contradiction (red)
+  if (!placements || placements.length === 0) {
+    for (let el of clueSpans) if (el) el.classList.add('red','bold');
+    return;
+  }
+
+  // helper: produce spans for each group from a placement
+  function groupsFromPlacement(pl) {
+    const spans = [];
+    let i = 0;
+    while (i < n) {
+      if (pl[i]) {
+        let s = i;
+        while (i < n && pl[i]) i++;
+        spans.push([s, i - 1]);
+      } else i++;
+    }
+    return spans;
+  }
+
+  const placementsGroupSpans = placements.map(p => groupsFromPlacement(p));
+
+  // possible cells per group (union across placements)
+  const possibleCellsPerGroup = Array.from({length: k}, () => new Set());
+  for (let pi = 0; pi < placements.length; pi++){
+    const spans = placementsGroupSpans[pi];
+    if (!spans || spans.length !== k) continue; // skip placements that don't segment into k groups (defensive)
+    for (let j=0;j<k;j++){
+      const [s,e] = spans[j];
+      for (let x=s;x<=e;x++) possibleCellsPerGroup[j].add(x);
+    }
+  }
+
+  // union of all block indices across placements (to detect impossible placed blocks)
+  const unionAll = new Set();
+  placements.forEach(p => p.forEach((v, idx) => { if (v) unionAll.add(idx); }));
+  let impossiblePlacedBlock = false;
+  for (let i=0;i<n;i++){
+    if (lineState[i] === 1 && !unionAll.has(i)) { impossiblePlacedBlock = true; break; }
+  }
+
+  // Now iterate the displayed clue spans (defensive if clueSpans length != k)
+  for (let j = 0; j < clueSpans.length; j++){
+    const el = clueSpans[j];
+    if (!el) continue;
+
+    // if entire line contradiction
+    if (impossiblePlacedBlock) { el.classList.add('red','bold'); continue; }
+
+    // line-level: all blocks placed but empty cells remain -> grey + bold (you wanted this)
+    if (placedBlocksCount === totalBlocks && hasEmptyCells) {
+      el.classList.add('grey','bold');
+      continue;
+    }
+
+    // map displayed span index j to group index gj (if available)
+    const gj = (j < k) ? j : null;
+    const possibleSet = (gj !== null) ? possibleCellsPerGroup[gj] : null;
+
+    // if we don't have candidate cells for this group -> lightgrey
+    if (!possibleSet || possibleSet.size === 0) {
+      el.classList.add('lightgrey');
+      continue;
+    }
+
+let anyPlacementNeeds = false;
+let spanStart = -1, spanEnd = -1;
+
+// check all placements
+for (let pi=0; pi<placements.length; pi++){
+  const spans = placementsGroupSpans[pi];
+  if (!spans || spans.length !== k) continue;
+  const [s,e] = spans[gj];
+  spanStart = s;
+  spanEnd   = e;
+
+  // count how many blocks user has already placed inside this span
+  let placedInSpan = 0;
+  for (let x=s; x<=e; x++){
+    if (lineState[x] === 1) placedInSpan++;
+  }
+  if (placedInSpan < clues[gj]) { 
+    anyPlacementNeeds = true; 
+    break;
+  }
+}
+
+if (anyPlacementNeeds) {
+  el.classList.add('blue','bold');
+} else {
+  // enough blocks placed → check bounding
+  let leftBounded  = (spanStart === 0) || (lineState[spanStart - 1] === 2);
+  let rightBounded = (spanEnd === lineState.length - 1) || (lineState[spanEnd + 1] === 2);
+
+  if (leftBounded && rightBounded) {
+    el.classList.add('grey','bold');  // confirmed group
+  } else {
+    el.classList.add('blue','bold');  // still "needs bounding"
+  }
+}
+
+  }
+
+  // if fully completed (all blocks and no empties) -> cross out
+  if (placedBlocksCount === totalBlocks && !hasEmptyCells) {
+    for (let el of clueSpans) if (el) el.classList.add('lightgrey','crossed');
+  } else {
+    for (let el of clueSpans) if (el) el.classList.remove('lightgrey','crossed');
+  }
+}
+
+
+
+
+/* ---------- FIXED checkWin ---------- 
+   Win if every solution 'true' cell has state === 1 (a placed block).
+   Don't win if every solution cell is filled, but there are also incorrect cells
+   Crosses are ignored (not required).
+*/
+function checkWin(){
+  if (!solution || !state) return false;
+  const hasBlocks = solution.some(row => row.some(cell => cell));
+  if (!hasBlocks) return false;
+  for (let r=0;r<rows;r++){
+    for (let c=0;c<cols;c++){
+      const sol = solution[r][c];
+	  const s = state[r][c];
+      if (sol && s !== 1) return false; // required block missing
+	  if ((s === 1 && !sol) || (s === 2 && sol)) return false; // block placed where it shouldn't be, or cross placed where it shouldn't be
+	  
+    }
+  }
+  return true;
+}
+
+/* initial small default */
+(function initBlank(){
+  const w = parseInt(widthInput.value) || 10;
+  const h = parseInt(heightInput.value) || 10;
+  rows = h;
+  cols = w;
+  solution = Array.from({length:rows}, () => Array(cols).fill(false));
+  initState();
+  buildGrid();
+  updateAll();
+})();
+
+
+
+function exportCSV(){
+  let csv = '';
+  for (let r=0;r<rows;r++){
+    const line = [];
+    for (let c=0;c<cols;c++){
+      line.push(state[r][c] === 1 ? 'X' : '');
+    }
+    csv += line.join(',') + '\n';
+  }
+  return csv;
+}
+saveCSVBtn.addEventListener('click', () => {
+  const csv = exportCSV();
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'picross.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  status.textContent = `Saved current board as CSV.`;
+});
+
+
+</script>
+</body>
+</html>
