@@ -39,7 +39,7 @@
     ),
     /* actual background */
     linear-gradient(180deg, #e9eefb, #f5f7ff);
-	background-position: 4px 4px, 4px 4px, 0 0;
+		background-position: 4px 4px, 4px 4px, 0 0;
     padding:6px;
     border-radius:6px;
   }
@@ -105,7 +105,58 @@
   .clue-number.red { color: red; font-weight: bold; }
   .clue-number.grey { color: grey; }
   .clue-number.greybold { color: grey !important; font-weight: bold; text-decoration: line-through; } /* when fully solved */
-  .clue-number.lightgrey { color: #ccc; font-weight: 700; }
+  .clue-number.lightgrey { color: #ccc; font-weight: 500; }
+
+
+  /* === DARK MODE STYLING === */
+	#darkModeBtn {
+		position: fixed;
+		right: 18px;
+		top: 18px;
+	}
+	body.dark-mode {
+    background: #111;
+    color: #eee;
+  }
+
+  body.dark-mode .board-wrap {
+    background: #222;
+  }
+
+  body.dark-mode .cell {
+    background: #646464;
+    color: #eee;
+  }
+	
+	body.dark-mode .help {
+		background: #1f1f1f;
+	}
+	
+	body.dark-mode .cell.block { background:#030d91; color:white; font-weight:700; }
+	body.dark-mode .clue-number.blue { color:#545eed; font-weight:700; }
+	body.dark-mode .clue-number.lightgrey { color: #fff3; font-weight: 500; }
+	
+	body.dark-mode .grid {
+		background-image:
+			/* vertical lines */
+			repeating-linear-gradient(
+				to right,
+				rgba(50, 50, 50, 1) 0,
+				rgba(50, 50, 50, 1) 2px,
+				transparent 1px,
+				transparent 150px
+			),
+			/* horizontal lines */
+			repeating-linear-gradient(
+				to bottom,
+				rgba(50, 50, 50, 1) 0,
+				rgba(50, 50, 50, 1) 2px,
+				transparent 1px,
+				transparent 150px
+			),
+			/* actual background */
+			linear-gradient(180deg, #4f4f4f, #454545);
+	}
 
 
 </style>
@@ -158,6 +209,9 @@
   </div>
 </div>
 
+<button id="darkModeBtn">Toggle Dark Mode</button>
+
+
 <script>
 let solution = [];      // 2D array of booleans
 let rows = 0, cols = 0;
@@ -189,6 +243,23 @@ csvInput.addEventListener('change', e => {
   };
   reader.readAsText(f);
 });
+
+// -------- Dark Mode stuff --------
+const darkModeBtn = document.getElementById("darkModeBtn");
+
+// On load, apply saved preference
+if (localStorage.getItem("darkMode") === "true") {
+  document.body.classList.add("dark-mode");
+}
+
+// Toggle and save preference
+darkModeBtn.addEventListener("click", () => {
+  document.body.classList.toggle("dark-mode");
+  const isDark = document.body.classList.contains("dark-mode");
+  localStorage.setItem("darkMode", isDark);
+});
+//----------------------------------
+
 
 newBtn.addEventListener('click', () => {
   rows = 10; cols = 10;
@@ -333,7 +404,6 @@ function buildGrid(){
   // ensure it uses same column count as grid
   colCluesWrap.style.gridTemplateColumns = `repeat(${cols}, ${getComputedStyle(document.documentElement).getPropertyValue('--cell-size') || '28px'})`;
 
-  // compute numeric cell size and gap in px for precise heights
 // compute numeric cell size and gap in px for precise heights
 const cssCellSize = getComputedStyle(document.documentElement).getPropertyValue('--cell-size').trim() || '28px';
 const cssGap = getComputedStyle(document.documentElement).getPropertyValue('--grid-gap').trim() || '2px';
@@ -668,7 +738,7 @@ function updateAll(){
   
   
   
-    // overlay distance numbers when C is held
+  // overlay distance numbers when C is held
   if (cKeyDown && hoverCell) {
     const { r: hr, c: hc } = hoverCell;
 
