@@ -115,7 +115,7 @@
 <div class="topbar">
   <div class="controls">
     <label><strong>Load CSV:</strong> <input id="csvfile" type="file" accept=".csv,text/csv"></label>
-    <button id="newBtn">New (random small)</button>
+    <button id="newBtn">New (random)</button>
     <button id="resetBtn">Reset</button>
 	<details>
 		<summary><b>Draw Your Own Nonogram</b></summary>
@@ -126,7 +126,7 @@
 	</details>
   </div>
 </div>
-<div class="small"><b>Instructions:</b> Left-click: place/remove block • Right-click: place/remove cross • Z: undo</div>
+<div class="small"><b>Instructions:</b> Left-click: place/remove block • Right-click: place/remove cross • Z: undo • C: count cells</div>
 
 <div class="container">
   <div class="left">
@@ -165,6 +165,8 @@ let state = [];         // same shape, values: 0 empty, 1 block, 2 cross
 let undoStack = [];
 const MAX_UNDO = 100;
 let showMistakesOn = false;
+let cKeyDown = false;
+
 
 const csvInput = document.getElementById('csvfile');
 const gridArea = document.getElementById('gridArea');
@@ -545,6 +547,37 @@ function onDocumentMouseUp(e){
   document.removeEventListener('mouseup', onDocumentMouseUp);
 }
 
+// ======= C key overlay =======
+document.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 'c') {
+    cKeyDown = true;
+    updateAll(); // refresh overlay
+  }
+});
+
+document.addEventListener('keyup', e => {
+  if (e.key.toLowerCase() === 'c') {
+    cKeyDown = false;
+    updateAll(); // clear overlay
+  }
+});
+let hoverCell = null;
+
+gridArea.addEventListener('mousemove', e => {
+  const cell = e.target.closest('.cell');
+  if (cell) {
+    hoverCell = { r: +cell.dataset.r, c: +cell.dataset.c };
+  } else {
+    hoverCell = null;
+  }
+  if (cKeyDown) updateAll();
+});
+
+gridArea.addEventListener('mouseleave', () => {
+  hoverCell = null;
+  if (cKeyDown) updateAll();
+});
+
 
 
 function toggleCrossFromEvent(e){
@@ -632,6 +665,43 @@ function updateAll(){
   }
 
   if (showMistakesOn) highlightMistakes();
+  
+  
+  
+    // overlay distance numbers when C is held
+  if (cKeyDown && hoverCell) {
+    const { r: hr, c: hc } = hoverCell;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const el = cellElements[r][c];
+        if (!el) continue;
+
+        // restore normal contents
+        el.textContent = '';
+
+        if (r === hr) {
+          // same row → distance horizontally
+          el.textContent = Math.abs(c - hc) + 1;
+        }
+        if (c === hc) {
+          // same column → distance vertically
+          el.textContent = Math.abs(r - hr) + 1;
+        }
+      }
+    }
+  } else {
+    // clear numbers if C not held
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const el = cellElements[r][c];
+        if (!el) continue;
+        el.textContent = '';
+      }
+    }
+  }
+
+  
 }
 
 function enumerateLinePlacements(lineState, clues){
