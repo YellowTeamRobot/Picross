@@ -165,7 +165,7 @@ csvInput.addEventListener('change', e => {
     parseCSV(ev.target.result);
     buildGrid();
     updateAll();
-    status.textContent = `Loaded puzzle ${rows}×${cols}.`;
+    status.textContent = `Loaded puzzle ${cols}×${rows}.`;
   };
   reader.readAsText(f);
 });
@@ -181,7 +181,7 @@ newBtn.addEventListener('click', () => {
   initState();
   buildGrid();
   updateAll();
-  status.textContent = `Random puzzle ${rows}×${cols}.`;
+  status.textContent = `Random puzzle ${cols}×${rows}.`;
 });
 
 const widthInput = document.getElementById('boardWidth');
@@ -195,17 +195,17 @@ newBtn.addEventListener('click', () => {
   cols = w;
 
   solution = Array.from({length:rows}, () => Array(cols).fill(false));
-  // fill randomly ~45%
+  // fill randomly ~60%
   for (let r=0;r<rows;r++){
     for (let c=0;c<cols;c++){
-      solution[r][c] = Math.random() < 0.45;
+      solution[r][c] = Math.random() < 0.6;
     }
   }
 
   initState();
   buildGrid();
   updateAll();
-  status.textContent = `Random puzzle ${rows}×${cols}.`;
+  status.textContent = `Random puzzle ${cols}×${rows}.`;
 });
 
 
