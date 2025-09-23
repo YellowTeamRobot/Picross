@@ -20,7 +20,26 @@
   .grid {
     display:grid;
     gap:var(--grid-gap);
-    background:linear-gradient(180deg,#e9eefb,#f5f7ff);
+    background-image:
+    /* vertical lines */
+    repeating-linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0.1) 0,
+      rgba(0, 0, 0, 0.1) 2px,
+      transparent 1px,
+      transparent 150px
+    ),
+    /* horizontal lines */
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.1) 0,
+      rgba(0, 0, 0, 0.1) 2px,
+      transparent 1px,
+      transparent 150px
+    ),
+    /* actual background */
+    linear-gradient(180deg, #e9eefb, #f5f7ff);
+	background-position: 4px 4px, 4px 4px, 0 0;
     padding:6px;
     border-radius:6px;
   }
@@ -88,7 +107,6 @@
   .clue-number.greybold { color: grey !important; font-weight: bold; text-decoration: line-through; } /* when fully solved */
   .clue-number.lightgrey { color: #ccc; font-weight: 700; }
 
-  
 
 </style>
 </head>
