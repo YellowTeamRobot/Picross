@@ -179,6 +179,8 @@
 		<label>Height: <input type="number" id="boardHeight" value="10" min="1" style="width:50px"></label>
 		<p>Refresh page to update grid size</p>
 		<button id="saveCSV">Save to CSV</button>
+		<button id="checkSolutions">Check Solutions</button>
+		<button id="viewSolution">View</button>
 	</details>
   </div>
 </div>
@@ -348,6 +350,128 @@ document.addEventListener('keydown', e => {
     doUndo();
   }
 });
+
+// View loaded CSV (for viewing your premade nonogram without having to solve it)
+const viewBtn = document.getElementById("viewSolution");
+viewBtn.addEventListener("click", () => {
+  if (!solution || solution.length === 0) {
+    status.textContent = "No puzzle loaded.";
+    return;
+  }
+	console.log(solution);
+  for (let r=0; r<rows; r++) {
+    for (let c=0; c<cols; c++) {
+      if (solution[r][c]) {
+				const prev = state[r][c];
+				state[r][c] = solution[r][c];
+        applyMove(r, c, prev, 1); // 1 = block
+				
+				updateAll();
+      }
+    }
+  }
+
+  status.textContent = "Solution blocks displayed.";
+	state = solution;
+	updateSolutionFromState();
+});
+function updateSolutionFromState() {
+  solution = Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: cols }, (_, c) =>
+      state[r][c] === 1 ? 1 : 0
+    )
+  );
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const checkBtn = document.getElementById("checkSolutions");
+checkBtn.addEventListener("click", () => {
+  // 1) try simple solver
+  const simpleRes = simpleSolve();
+  if (simpleRes.solved){
+    status.textContent = `Simple, ${simpleRes.sweeps} sweep(s)`;
+    return;
+  }
+
+
+const rowClues = solution.map(line => computeCluesFromLine(line));
+  const colClues = [];
+  for (let c=0;c<cols;c++){
+    const col = [];
+    for (let r=0;r<rows;r++) col.push(solution[r][c]);
+    colClues.push(computeCluesFromLine(col));
+  }
+
+
+  // ---------- Backtracking solver (solution count) ----------
+  let solutionsFound = 0;
+  function backtrack(r, partialGrid) {
+    if (solutionsFound >= 3) return;
+    if (r === rows) { solutionsFound++; return; }
+    const lineState = Array(cols).fill(0);
+    const candidates = enumerateLinePlacements(lineState, rowClues[r]);
+    for (let cand of candidates) {
+      let ok = true;
+      for (let c=0;c<cols;c++) {
+        const colVals = [];
+        for (let rr=0; rr<r; rr++) colVals.push(partialGrid[rr][c]);
+        colVals.push(cand[c]);
+        const placements = enumerateLinePlacements(colVals, colClues[c]);
+        if (placements.length === 0) { ok = false; break; }
+      }
+      if (!ok) continue;
+      partialGrid.push(cand);
+      backtrack(r+1, partialGrid);
+      partialGrid.pop();
+      if (solutionsFound >= 3) return;
+    }
+  }
+  backtrack(0, []);
+
+  // ---------- Final status ----------
+  let solText;
+  if (solutionsFound === 1) solText = "Only 1 logical solution.";
+  else if (solutionsFound === 2) solText = "2 logical solutions.";
+  else if (solutionsFound >= 3) solText = "3+ logical solutions.";
+  else solText = "No valid solution.";
+
+
+  status.textContent = `${solText} Difficulty: ${simpleRes.sweeps || 'unknown'}`;
+});
+
+
+
+
+
+
+
+
+
+
+
 
 function parseCSV(txt) {
   const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
