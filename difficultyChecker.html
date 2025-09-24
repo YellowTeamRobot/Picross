@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Nonogram Difficulty Calculator</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 2em; }
+  #difficulty { font-weight: bold; margin-top: 1em; }
+  #canvasContainer { margin-top: 1em; }
+</style>
+</head>
+<body>
+<h1>Nonogram Difficulty Calculator</h1>
+<input type="file" id="fileInput" accept=".csv">
+<div id="difficulty"></div>
+<div id="canvasContainer">
+  <canvas id="nonogramCanvas"></canvas>
+</div>
+
+<script>
+function parseCSV(text) {
+  return text.trim().split('\n').map(row => row.split(',').map(cell => cell.trim()));
+}
+
+function getClues(line) {
+  const clues = [];
+  let count = 0;
+  for (let c of line) {
+    if (c.toUpperCase() === 'X') count++;
+    else { if (count > 0) clues.push(count); count = 0; }
+  }
+  if (count > 0) clues.push(count);
+  return clues.length > 0 ? clues : [0];
+}
+
+function average(arr) { return arr.reduce((a,b)=>a+b,0)/arr.length; }
+function variance(arr) { const avg = average(arr); return average(arr.map(x => (x-avg)**2)); }
+
+// Helper: compute clusters and gaps for a line
+function clustersAndGaps(line) {
+  const clusters = [];
+  const gaps = [];
+  let count = 0;
+  let emptyCount = 0;
+  let firstFilled = false;
+  for (let c of line) {
+    if (c.toUpperCase() === 'X') {
+      if (emptyCount>0 && firstFilled) gaps.push(emptyCount);
+      emptyCount = 0;
+      count++;
+      firstFilled = true;
+    } else {
+      if (count>0) clusters.push(count);
+      count = 0;
+      emptyCount++;
+    }
+  }
+  if(count>0) clusters.push(count);
+  return {clusters, gaps};
+}
+
+// Solver tracking propagated cells
+function countSolverMetrics(grid) {
+  const rows = grid.length;
+  const cols = grid[0].length;
+  const filled = Array.from({length: rows}, () => Array(cols).fill(false));
+  
+  let steps = 0;
+  let stuckPasses = 0;
+  let propagatedCells = 0;
+
+  function applyLineLogic(line, isRow, idx) {
+    const clues = getClues(line);
+    const lineLen = line.length;
+    const totalBlocks = clues.reduce((a,b)=>a+b,0);
+    let minPos = 0;
+    let newCells = 0;
+    for(let clue of clues){
+      const overlap = totalBlocks - lineLen;
+      if(overlap > 0){
+        for(let i=minPos + overlap; i<minPos + clue; i++){
+          let r = isRow ? idx : i;
+          let c = isRow ? i : idx;
+          if(!filled[r][c]) {
+            filled[r][c] = true;
+            newCells++;
+          }
+        }
+      }
+      minPos += clue+1;
+    }
+    return newCells;
+  }
+
+  let changed;
+  do {
+    changed = false;
+    let newPlacedThisStep = 0;
+
+    for(let r=0;r<rows;r++) newPlacedThisStep += applyLineLogic(grid[r], true, r);
+    for(let c=0;c<cols;c++) newPlacedThisStep += applyLineLogic(grid.map(r=>r[c]), false, c);
+
+    if(newPlacedThisStep>0){
+      steps++;
+      changed = true;
+      propagatedCells += newPlacedThisStep;
+    } else stuckPasses++;
+  } while(changed);
+
+  const totalFilled = grid.flat().filter(c=>c.toUpperCase()==='X').length;
+  const propagationRatio = propagatedCells / Math.max(totalFilled,1);
+  return {steps, stuckPasses, propagationRatio, totalFilled};
+}
+
+// Compute line ambiguity: number of cells that could belong to multiple clues
+function lineAmbiguity(line){
+  const clues = getClues(line);
+  const len = line.length;
+  let ambiguous = 0;
+  for (let i=0;i<len;i++){
+    // if line has multiple clues, cells not at edges of clue can be ambiguous
+    if(clues.length>1 && line[i].toUpperCase()==='X') ambiguous++;
+  }
+  return ambiguous;
+}
+
+function calculateDifficulty(grid) {
+  const rows = grid.length;
+  const cols = grid[0].length;
+
+  let allClusters = [];
+  let allGaps = [];
+  let allAmbiguity = 0;
+
+  for(let r=0;r<rows;r++){
+    const {clusters,gaps} = clustersAndGaps(grid[r]);
+    allClusters.push(...clusters);
+    allGaps.push(...gaps);
+    allAmbiguity += lineAmbiguity(grid[r]);
+  }
+
+  for(let c=0;c<cols;c++){
+    const col = grid.map(r=>r[c]);
+    const {clusters,gaps} = clustersAndGaps(col);
+    allClusters.push(...clusters);
+    allGaps.push(...gaps);
+    allAmbiguity += lineAmbiguity(col);
+  }
+
+  const avgClusterSize = average(allClusters);
+  const avgGapSize = allGaps.length>0?average(allGaps):0;
+  const avgAmbiguity = allAmbiguity / (rows + cols);
+
+  const {steps, stuckPasses, propagationRatio, totalFilled} = countSolverMetrics(grid);
+  const density = totalFilled / (rows*cols);
+  const densityPenalty = (0.2 - density) * 5;
+
+  // Combine into a weighted score
+  const baseScore = 0.3*(1/Math.max(avgClusterSize,0.1)) + 0.25*avgGapSize + 0.2*stuckPasses + 0.15*avgAmbiguity + 0.1*densityPenalty;
+  const score = (baseScore / Math.max(propagationRatio,0.1))/14;
+
+  let difficulty="";
+  if(score<0.5) difficulty="Very Easy";
+	else if(score<0.9) difficulty="Easy";
+  else if(score<1.04) difficulty="Medium";
+	else if(score<1.15) difficulty="Medium Hard";
+	else if(score<1.35) difficulty="Hard";
+  else difficulty="Very Hard";
+
+  return {score, difficulty};
+}
+
+function drawGrid(grid) {
+  const canvas = document.getElementById('nonogramCanvas');
+  const ctx = canvas.getContext('2d');
+  const cellSize = 20;
+  const rows = grid.length;
+  const cols = grid[0].length;
+  canvas.width = cols*cellSize;
+  canvas.height = rows*cellSize;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      ctx.strokeStyle = '#888';
+      ctx.strokeRect(c*cellSize,r*cellSize,cellSize,cellSize);
+      if(grid[r][c].toUpperCase()==='X'){
+        ctx.fillStyle='#333';
+        ctx.fillRect(c*cellSize,r*cellSize,cellSize,cellSize);
+      }
+    }
+  }
+}
+
+document.getElementById('fileInput').addEventListener('change',e=>{
+  const file=e.target.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=function(evt){
+    const text=evt.target.result;
+    const grid=parseCSV(text);
+    const result=calculateDifficulty(grid);
+    document.getElementById('difficulty').innerText=`Difficulty: ${result.difficulty} (Score: ${result.score.toFixed(2)})`;
+    drawGrid(grid);
+  };
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>
