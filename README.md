@@ -21,4 +21,4 @@ Coming Soon
 - [x] Help: Show Mistakes Button
 - [x] Help: Autocomplete 1 random cell
 - [ ] Fancy win screen
-  - [ ] Add images? (i.e. solve puzzle, and then it will fade into an image that was embedded in the csv)
+  - [x] Add images? (i.e. solve puzzle, and then it will fade into an image that was embedded in the csv)
