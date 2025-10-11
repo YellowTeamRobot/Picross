@@ -164,6 +164,24 @@
 	}
 
 
+	#output-image {
+		z-index: 99;
+		width:100%;
+		height:100%;
+		visibility: hidden;
+		display: block;
+	}
+	#close-image {
+		position: absolute; 
+		z-index: 100;
+		top:2%; right:2%; 
+		border: none; 
+		visibility: hidden;
+	}
+	#close-image:hover {
+		cursor: pointer;
+	}
+
 </style>
 </head>
 <body oncontextmenu="return false;">
@@ -178,7 +196,8 @@
 		<label>Width: <input type="number" id="boardWidth" value="10" min="1" style="width:50px"></label>
 		<label>Height: <input type="number" id="boardHeight" value="10" min="1" style="width:50px"></label>
 		<p>Refresh page to update grid size</p>
-		<button id="saveCSV">Save to CSV</button>
+		Optional Image: <input id="embedImage" type="file" accept="image/*"> <br>
+		<button id="saveCSV">Save to CSV</button> 
 	</details>
   </div>
 </div>
@@ -217,7 +236,12 @@
 <button id="darkModeBtn">Toggle Dark Mode</button>
 <button id="simpleDragBtn"></button>
 
+<div style="position: relative; width:15em; height:15em;">
+	<img id="output-image"> </img> <!-- Picture for winning if there is one -->
+	<button id="close-image">X</button>
+</div>
 
+<script src="https://cdn.jsdelivr.net/npm/pica@7.0.0/dist/pica.min.js"></script>
 <script>
 let solution = [];      // 2D array of booleans
 let rows = 0, cols = 0;
@@ -236,6 +260,12 @@ const showMistakesBtn = document.getElementById('showMistakes');
 const toggleMistakesBtn = document.getElementById('toggleMistakes');
 const newBtn = document.getElementById('newBtn');
 const resetBtn = document.getElementById('resetBtn');
+const outputImage = document.getElementById('output-image');
+const embedImageBtn = document.getElementById('embedImage');
+const canvas = document.createElement("canvas");
+
+let currentCSV = null;
+let embedImageData = null;
 
 csvInput.addEventListener('change', e => {
   const f = e.target.files[0];
@@ -243,6 +273,7 @@ csvInput.addEventListener('change', e => {
   const reader = new FileReader();
   reader.onload = ev => {
     parseCSV(ev.target.result);
+		currentCSV = ev.target.result;
     buildGrid();
     updateAll();
     status.textContent = `Loaded puzzle ${cols}×${rows}.`;
@@ -349,23 +380,200 @@ document.addEventListener('keydown', e => {
   }
 });
 
+
+// ------------------------ For CSVs with an image embedded in them ---------------------------
+function processCSVImage(csvContent) {
+	// Extract the hex data between {start_img} and {end_img}
+	const startTag = "{start_img}";
+	const endTag = "{end_img}";
+	const startIndex = csvContent.indexOf(startTag);
+	const endIndex = csvContent.indexOf(endTag);
+	let csvHasImg = true;
+	if (startIndex === -1 || endIndex === -1) {
+			//console.error("Tags not found in the file.");
+			//return;
+			csvHasImg = false;
+	}
+	
+	if (csvHasImg) {
+		// How to handle win screen if the csv does have an image
+		const hexData = csvContent.substring(startIndex + startTag.length, endIndex).trim();
+		const pixelData = parseImageHexData(hexData);
+		renderImage(pixelData);
+		alert("You win!")
+	}
+	else {
+		// How to handle the win screen if the csv does not have an image
+		alert("You win!")
+	}
+
+}
+
+function parseImageHexData(hexData) {
+	// Split the hex data into rows and then into individual pixel hex values
+	const rows = hexData.split('\n');
+	const pixels = [];
+
+	rows.forEach(row => {
+			const pixelValues = row.split(',').map(value => value.trim());
+			pixels.push(...pixelValues);
+	});
+
+	return pixels;
+}
+
+const closeWinImage = document.getElementById("close-image");
+
+// Close win image when clicked
+closeWinImage.addEventListener("click", () => {
+	outputImage.style.visibility = "hidden";
+	closeWinImage.style.visibility = "hidden";
+});
+
+function renderImage(pixelData) {
+	const canvas = document.createElement("canvas");
+	const ctx = canvas.getContext("2d");
+
+	// Set canvas size to 64x64
+	canvas.width = 64;
+	canvas.height = 64;
+
+	const imageData = ctx.createImageData(64, 64);
+	const data = imageData.data;
+
+	let pixelIndex = 0;
+	for (let i = 0; i < pixelData.length; i++) {
+			const hexColor = pixelData[i];
+			const [r, g, b] = hexToRgb(hexColor);
+
+			// Set the pixel color in the ImageData object
+			data[pixelIndex] = r;     // Red
+			data[pixelIndex + 1] = g; // Green
+			data[pixelIndex + 2] = b; // Blue
+			data[pixelIndex + 3] = 255; // Alpha (fully opaque)
+
+			pixelIndex += 4;
+	}
+
+	// Put the image data into the canvas and show it
+	ctx.putImageData(imageData, 0, 0);
+	outputImage.src = canvas.toDataURL(); // Display the image in <img>
+	outputImage.style.visibility = "visible";
+	closeWinImage.style.visibility = "visible";
+}
+
+function hexToRgb(hex) {
+	// Convert a 3-character hex color code (e.g., "F11") to RGB (e.g., [255, 17, 17])
+	const r = parseInt(hex[0] + hex[0], 16);
+	const g = parseInt(hex[1] + hex[1], 16);
+	const b = parseInt(hex[2] + hex[2], 16);
+
+	return [r, g, b];
+}
+// --------------------------------------------------------------------------------------------
+// ----------- For saving image embeds into CSVs -----------------------
+embedImage.addEventListener('change', embedImageUpload);
+let embedImgHex = null;
+
+function embedImageUpload(event) {
+	const file = event.target.files[0];
+	if (!file) return;
+
+	const reader = new FileReader();
+	reader.onload = (e) => {
+			const img = new Image();
+			img.onload = () => {
+					processEmbedImage(img);
+			};
+			img.src = e.target.result;
+	};
+	reader.readAsDataURL(file);
+}
+
+function processEmbedImage(img) {
+		// Resize the image to 64x64
+		canvas.width = 64;
+		canvas.height = 64;
+
+		const ctx = canvas.getContext("2d");
+		ctx.drawImage(img, 0, 0, 64, 64);
+
+		const imageData = ctx.getImageData(0, 0, 64, 64);
+		const hexString = convertToCompressedHexString(imageData);
+}
+
+function convertToCompressedHexString(imageData) {
+		const data = imageData.data;
+		let result = "{start_img}\n";
+
+		// Loop over every pixel and convert to compressed RGB hex
+		for (let i = 0; i < data.length; i += 4) {
+				const r = compressToHalfPrecision(data[i]);
+				const g = compressToHalfPrecision(data[i + 1]);
+				const b = compressToHalfPrecision(data[i + 2]);
+
+				const hexColor = `${r}${g}${b}`.toUpperCase();
+
+				// If it's not the first pixel of a new row, add a comma before
+				if (i > 0 && i % 256 !== 0) {
+						result += ",";
+				}
+
+				// Every 64th pixel (end of a row), add a newline
+				if (i % 256 === 0 && i !== 0) {
+						result += "\n";
+				}
+
+				result += hexColor;
+		}
+
+		result += "\n{end_img}";
+		embedImgHex = result;
+		//return result;
+}
+
+// Compress to the nearest hex value with half precision (0-255 to 00, 11, 22, ..., FF)
+function compressToHalfPrecision(value) {
+		// Round to the nearest multiple of 17
+		const step = 255 / 15; // Step size for 16 possible values
+		const rounded = Math.round(value / step) * step;
+		// Convert to 2-digit hex value
+		const hex = Math.round(rounded).toString(16).padStart(2, '0').toUpperCase();
+		return hex[0]; // Return only the first hex digit
+}
+//-------------------------------------------------------------------------------
+
+
+
 function parseCSV(txt) {
   const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  solution = lines.map(line => {
+
+	// ----- This prevents images embedded in the csv from being counted as part of the puzzle -----
+  // Find the index of the line containing {start_img}
+  const startImgIndex = lines.findIndex(line => line.includes("{start_img}"));
+  // If {start_img} is found, slice the array to only include lines before it
+  const validLines = startImgIndex === -1 ? lines : lines.slice(0, startImgIndex);
+	// ---------------------------------------------------------------------------------------------
+
+  solution = validLines.map(line => {
     const colsArr = line.split(',');
     return colsArr.map(cell => (cell.trim().toUpperCase() === 'X'));
   });
+
   rows = solution.length;
   cols = solution[0]?.length || 0;
-  for (let r=0;r<rows;r++) {
+
+  for (let r = 0; r < rows; r++) {
     if (solution[r].length < cols) {
       const diff = cols - solution[r].length;
       solution[r] = solution[r].concat(Array(diff).fill(false));
     }
   }
+
   initState();
   undoStack = [];
 }
+
 
 function initState(){
   if (!solution || solution.length===0) {
@@ -618,7 +826,7 @@ function onCellMouseDown(e){
   document.addEventListener('mouseup', onDocumentMouseUp);
 
   // optionally check win (small delay avoids race with visual update)
-  if (checkWin()) setTimeout(()=> alert("You win!"), 10);
+  if (checkWin()) setTimeout(()=> processCSVImage(currentCSV), 10);
 }
 
 // ===== called while dragging (global mousemove) =====
@@ -1058,12 +1266,21 @@ function checkWin(){
 
 function exportCSV(){
   let csv = '';
+	// 6 blank lines at top
+	for (let i = 0; i < 6; i++) {
+    csv += '\n';
+  }
+	// add the picross
   for (let r=0;r<rows;r++){
     const line = [];
     for (let c=0;c<cols;c++){
       line.push(state[r][c] === 1 ? 'X' : '');
     }
     csv += line.join(',') + '\n';
+  }
+	// if there is an image to embed, add that.
+	if (embedImgHex != null) { 
+    csv += '\n' + embedImgHex; 
   }
   return csv;
 }
