@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Nonogram Solver Visualization</title>
+<style>
+  body { font-family: sans-serif; }
+  table { border-collapse: collapse; margin: 10px 0; }
+  td { width: 20px; height: 20px; text-align: center; border: 1px solid #ccc; }
+  .block { background-color: black; }
+	td { color: transparent; }
+  .cross { color: red; }
+  .grid-container { display: flex; gap: 50px; }
+  .iteration { margin-top: 20px; }
+</style>
+</head>
+<body>
+<h1>Nonogram Solver Visualization</h1>
+<input type="file" id="csvFile">
+<button id="solveButton">Solve Logically</button>
+<div id="result"></div>
+
+<div class="grid-container">
+  <div>
+    <h3>Original Solution</h3>
+    <div id="solutionGrid"></div>
+  </div>
+  <div>
+    <h3>Max Logical Solve</h3>
+    <div id="logicalGrid"></div>
+    <div id="iterations"></div>
+  </div>
+</div>
+<div id="status"></div>
+
+<script>
+let solution = [];
+
+function parseCSV(content) {
+  // Split on line breaks – keeps empty lines in the array.
+  const lines = content.split(/\r?\n/);
+
+  const gridLines = [];
+  let started = false;               // true after the first non‑blank line
+
+  for (const raw of lines) {
+    const trimmed = raw.trim();      // convenient for checks
+
+    // Skip leading blanks
+    if (!started) {
+      if (trimmed === '') continue;
+      started = true;                // first non‑blank line found
+    }
+
+    // Stop on a blank line *or* the image marker
+    if (trimmed === '' || trimmed === '{start_img}') break;
+
+    gridLines.push(raw);             // keep the raw line for later splitting
+  }
+
+  // Convert each line to an array of trimmed cells
+  return gridLines.map(row =>
+    row.split(',').map(cell => cell.trim())
+  );
+}
+
+function generateClues(grid) {
+  const rowClues = grid.map(row => {
+    let clues = [], count = 0;
+    row.forEach(cell => {
+      if(cell === 'X') count++;
+      else if(count) { clues.push(count); count = 0; }
+    });
+    if(count) clues.push(count);
+    return clues.length ? clues : [0];
+  });
+  
+  const colClues = grid[0].map((_, c) => {
+    let clues = [], count = 0;
+    grid.forEach(row => {
+      if(row[c] === 'X') count++;
+      else if(count) { clues.push(count); count = 0; }
+    });
+    if(count) clues.push(count);
+    return clues.length ? clues : [0];
+  });
+  
+  return { rowClues, colClues };
+}
+
+function renderGrid(grid, containerId) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  const table = document.createElement('table');
+  grid.forEach(row => {
+    const tr = document.createElement('tr');
+    row.forEach(cell => {
+      const td = document.createElement('td');
+      if(cell === 'X') td.classList.add('block');
+      else if(cell === 'C') {
+        td.classList.add('cross');
+        td.textContent = '×'; // <-- make the cross visible
+      }
+      tr.appendChild(td);
+    });
+    table.appendChild(tr);
+  });
+  container.appendChild(table);
+}
+
+
+function copyGrid(grid) {
+  return grid.map(r => r.slice());
+}
+
+document.getElementById('csvFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  const text = await file.text();
+  solution = parseCSV(text);
+  renderGrid(solution, 'solutionGrid');
+  document.getElementById('status').innerText = '';
+  document.getElementById('iterations').innerHTML = '';
+});
+
+document.getElementById('solveButton').addEventListener('click', () => {
+  if(solution.length===0) return alert('Upload a CSV first!');
+  const clues = generateClues(solution);
+  const iterationsContainer = document.getElementById('iterations');
+  iterationsContainer.innerHTML = '';
+
+  const rows = solution.length;
+  const cols = solution[0].length;
+  let board = copyGrid(solution).map(r => r.map(_ => ''));
+  let prevBoard;
+  let iteration = 0;
+
+  const getCol = (b, c) => b.map(r => r[c]);
+  const setCol = (b, c, col) => col.forEach((v, r) => b[r][c] = v);
+
+function solveLineWithCrosses(line, clue) {
+    const length = line.length;
+    // All possible placements of the clue on this line
+    function generatePlacements(clue, length) {
+        const placements = [];
+        function backtrack(idx, start, current) {
+            if(idx === clue.length){
+                if(current.length < length) current.push(...Array(length-current.length).fill('.'));
+                placements.push(current.slice());
+                return;
+            }
+            const n = clue[idx];
+            const maxStart = length - n - (clue.slice(idx+1).reduce((a,b)=>a+b,0) + (clue.length-idx-1));
+            for(let s = start; s <= maxStart; s++){
+                let newLine = current.slice();
+                while(newLine.length < s) newLine.push('.');
+                for(let i=0;i<n;i++) newLine.push('X');
+                if(idx<clue.length-1) newLine.push('.');
+                backtrack(idx+1, newLine.length, newLine);
+            }
+        }
+        backtrack(0,0,[]);
+        return placements;
+    }
+
+    // Filter placements incompatible with known cells
+    const possible = generatePlacements(clue,length).filter(p=>{
+        for(let i=0;i<length;i++){
+            if(line[i]==='X' && p[i]!== 'X') return false;
+            if(line[i]==='C' && p[i]==='X') return false;
+        }
+        return true;
+    });
+
+    // For each cell, if all possible placements have X, mark X; if all have empty, mark C
+    const result = line.slice();
+    for(let i=0;i<length;i++){
+        let allX = possible.every(p=>p[i]==='X');
+        let allEmpty = possible.every(p=>p[i]!== 'X');
+        if(result[i]==='') {
+            if(allX) result[i]='X';
+            else if(allEmpty) result[i]='C';
+        }
+    }
+    return result;
+}
+
+
+  while(true){
+    iteration++;
+    prevBoard = copyGrid(board);
+
+    // Solve rows
+    for(let r=0;r<rows;r++){
+      board[r]=solveLineWithCrosses(board[r], clues.rowClues[r]);
+    }
+
+    // Solve columns
+    for(let c=0;c<cols;c++){
+      let col = getCol(board,c);
+      col = solveLineWithCrosses(col, clues.colClues[c]);
+      setCol(board,c,col);
+    }
+
+    // Render this iteration
+    const div = document.createElement('div');
+    div.className = 'iteration';
+    div.innerHTML = `<strong>Iteration ${iteration}</strong>`;
+    const table = document.createElement('table');
+    board.forEach(row => {
+      const tr = document.createElement('tr');
+      row.forEach(cell => {
+        const td = document.createElement('td');
+        if(cell==='X') td.classList.add('block');
+        else if(cell==='C') td.classList.add('cross');
+				td.textContent = '×';   // <-- ADD THIS
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+    div.appendChild(table);
+    iterationsContainer.appendChild(div);
+
+    // Check for changes
+    let changed=false;
+    outer: for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        if(board[r][c]!==prevBoard[r][c]){
+          changed=true;
+          break outer;
+        }
+      }
+    }
+    if(!changed) break;
+  }
+
+  // Determine status
+  let allFilled = board.flat().every(cell => cell==='X' || cell==='C');
+  let matchesSolution = true;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      if((solution[r][c]==='X' && board[r][c]!=='X') || (solution[r][c]==='' && board[r][c]==='X')){
+        matchesSolution=false;
+        break;
+      }
+    }
+  }
+
+  let status='';
+  if(!allFilled) status='Not fully solvable by logic.';
+  else if(matchesSolution) status='Uniquely solvable!';
+  else status='Multiple solutions possible.';
+  document.getElementById('status').innerText=status;
+});
+</script>
+</body>
+</html>
