@@ -14,10 +14,11 @@ Coming Soon
 - [x] Nonogram editor
 - [x] Undo moves
 - [x] Hold-Click and Drag to place Blocks/Crosses (overwrite all)
-  - [ ] Toggle overwrite all, or overwrite matching first cell placed.
+  - [x] Toggle overwrite all, or overwrite matching first cell placed.
 - [x] Guidelines every 5 cells
 - [x] Cell Counter from current cursor position
 - [x] Toggle Dark/Light Mode
 - [x] Help: Show Mistakes Button
 - [x] Help: Autocomplete 1 random cell
 - [ ] Fancy win screen
+  - [ ] Add images? (i.e. solve puzzle, and then it will fade into an image that was embedded in the csv)
